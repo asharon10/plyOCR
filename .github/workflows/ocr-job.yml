@@ -1,0 +1,99 @@
+name: OCR job
+# Runs plyOCR on one job folder in an S3-compatible bucket (e.g. Cloudflare R2):
+#   s3://$OCR_BUCKET/ocr-jobs/<job_id>/
+#     game.json, roi.json, markers.json, app/data.json   (inputs; only game.json required)
+#     defaults/roi.json, defaults/roi_templates.json     (optional fallback boxes)
+#     params.json  {"fps": 0.5, "workers": 0, "decoder": "keyframe"}
+# and writes back derived/*, status.json and log.txt next to them.
+#
+# This repo is public, so the run shows nothing about the game: the only input
+# is an opaque job id, the OCR output goes to log.txt in the bucket (not the
+# console), and no artifacts are kept.
+#
+# Repo secrets: OCR_S3_ENDPOINT, OCR_BUCKET, OCR_S3_ACCESS_KEY_ID, OCR_S3_SECRET_ACCESS_KEY.
+
+run-name: OCR job
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Job folder id (32 hex characters)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ocr-${{ github.event.inputs.job_id }}
+
+jobs:
+  ocr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.OCR_S3_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.OCR_S3_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      ENDPOINT: ${{ secrets.OCR_S3_ENDPOINT }}
+      BUCKET: ${{ secrets.OCR_BUCKET }}
+      JOB_ID: ${{ github.event.inputs.job_id }}
+    steps:
+      - name: Check job id
+        run: |
+          [[ "$JOB_ID" =~ ^[0-9a-f]{32}$ ]] || { echo "job_id must be 32 hex characters"; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr ffmpeg > /dev/null
+          pip install -q .
+
+      - name: Fetch job
+        run: |
+          aws s3 cp "s3://$BUCKET/ocr-jobs/$JOB_ID/" job/ --recursive --endpoint-url "$ENDPOINT" --only-show-errors
+          test -f job/game.json
+          rm -rf job/derived job/status.json job/log.txt
+
+      - name: OCR
+        run: |
+          python - <<'EOF'
+          import json, os, subprocess, sys, time
+          from pathlib import Path
+
+          job = Path("job")
+          p = json.loads((job / "params.json").read_text()) if (job / "params.json").exists() else {}
+          env = dict(os.environ)
+          for name, var in (("roi.json", "PLYOCR_DEFAULT_ROI"), ("roi_templates.json", "PLYOCR_ROI_TEMPLATES")):
+              if (job / "defaults" / name).exists():
+                  env[var] = str((job / "defaults" / name).resolve())
+          cmd = [sys.executable, "-m", "plyocr.run_tesseract_ocr", "--game", str(job / "game.json"),
+                 "--fps", str(p.get("fps", 0.5)), "--workers", str(p.get("workers", 0)),
+                 "--decoder", str(p.get("decoder", "keyframe")), "--derived", str(job / "derived")]
+          t0 = time.time()
+          with open(job / "log.txt", "w") as log:
+              rc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, env=env).returncode
+          rows = 0
+          try:
+              rows = len(json.loads((job / "derived" / "timeline.json").read_text()))
+          except Exception:
+              pass
+          status = {"status": "done" if rc == 0 else "failed", "exitCode": rc, "rows": rows,
+                    "seconds": round(time.time() - t0), "finishedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+          (job / "status.json").write_text(json.dumps(status))
+          print(f"exit={rc} rows={rows} seconds={status['seconds']}")
+          sys.exit(rc)
+          EOF
+
+      - name: Upload results
+        if: always()
+        run: |
+          [ -f job/status.json ] || echo '{"status":"failed","exitCode":-1,"rows":0}' > job/status.json
+          if [ -d job/derived ]; then aws s3 cp job/derived "s3://$BUCKET/ocr-jobs/$JOB_ID/derived/" --recursive --endpoint-url "$ENDPOINT" --only-show-errors; fi
+          if [ -f job/log.txt ]; then aws s3 cp job/log.txt "s3://$BUCKET/ocr-jobs/$JOB_ID/log.txt" --endpoint-url "$ENDPOINT" --only-show-errors; fi
+          aws s3 cp job/status.json "s3://$BUCKET/ocr-jobs/$JOB_ID/status.json" --endpoint-url "$ENDPOINT" --only-show-errors

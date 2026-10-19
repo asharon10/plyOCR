@@ -90,6 +90,25 @@ python -m plyocr.verify_ocr --game <game>/game.json --n 20                   # a
 Also: `spot_check`, `spots_roi`, `change_map`, `quarter_templates`, `compare_decoders`,
 `extract_scoreboard`, `claude_review` — each has `--help`.
 
+## Run on GitHub Actions
+
+`.github/workflows/ocr-job.yml` ("OCR job", manual trigger) runs a full OCR on a job
+folder in an S3-compatible bucket such as Cloudflare R2, so a host app can offload
+the work:
+
+```
+s3://$OCR_BUCKET/ocr-jobs/<job_id>/
+  game.json  roi.json  markers.json  app/data.json      inputs (game.json required)
+  defaults/roi.json  defaults/roi_templates.json         optional fallback boxes
+  params.json   {"fps": 0.5, "workers": 0, "decoder": "keyframe"}
+→ derived/*  status.json  log.txt                        written back by the run
+```
+
+Trigger it with `gh workflow run ocr-job.yml -R asharon10/plyOCR -f job_id=<32 hex>`.
+The only input is that opaque id; the OCR output goes to `log.txt` in the bucket,
+not the public run log, and no artifacts are kept. Repo secrets:
+`OCR_S3_ENDPOINT`, `OCR_BUCKET`, `OCR_S3_ACCESS_KEY_ID`, `OCR_S3_SECRET_ACCESS_KEY`.
+
 ## Default boxes
 
 When a game has no `roi.json`, plyOCR uses a learned per-resolution template, then a
