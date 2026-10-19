@@ -1447,7 +1447,13 @@ def _probe_next_periods(sk: _Seeker, duration: float) -> None:
 
 def run(game_path: Path, fps: float, workers: int = 0, skip_breaks: bool = True,
         decoder: str = "seek", derived_dir: Path | None = None,
-        use_markers: bool = True, plan_only: bool = False) -> None:
+        use_markers: bool = True, plan_only: bool = False,
+        shard: tuple[int, int] | None = None, merge_shards: list[Path] | None = None) -> None:
+    """Full-game OCR into <derived>/. To split one game across machines, run it
+    once per shard with ``shard=(i, n)`` (each reads every n-th chunk and writes
+    ``shard-<i>.json``), then once with ``merge_shards=[...]`` to assemble and
+    clean exactly as a single run would. Every call must use the same fps,
+    workers and decoder, so all of them cut the video into the same chunks."""
     game_dir = game_path.parent
     # Outputs normally land in <game>/derived; a comparison run can redirect them
     # to a scratch dir so the game's real timeline is never clobbered.
@@ -1673,21 +1679,47 @@ def run(game_path: Path, fps: float, workers: int = 0, skip_breaks: bool = True,
             tasks.append((start, timestamps[start:start + chunk_size], video_str, src_w, src_h, rois, _GRAYSCALE, _METHOD, _QUARTER_METHOD))
         worker = _process_chunk
 
-    if n_workers == 1:
+    run_tasks = tasks
+    if shard:
+        i, n = shard
+        run_tasks = tasks[i::n]
+        total_here = (sum(len(range(0, len(t[3]), t[5])) for t in run_tasks) if decoder == "keyframe"
+                      else sum(len(t[1]) for t in run_tasks))
+        print(f"  Shard {i + 1}/{n}: {len(run_tasks)} of {len(tasks)} chunks", flush=True)
+    else:
+        total_here = total
+
+    if merge_shards:
+        for f in merge_shards:
+            d = json.loads(Path(f).read_text())
+            for k, v in d["raw_by_idx"].items():
+                raw_by_idx[int(k)] = v
+            clean_all.extend(d["clean"])
+        missing = sorted({t[0] for t in tasks} - set(raw_by_idx))
+        if missing:
+            sys.exit(f"Shards are missing {len(missing)} of {len(tasks)} chunks — were they run with the same fps/workers/decoder?")
+        print(f"  Merged {len(merge_shards)} shard(s): {len(raw_by_idx)} chunks", flush=True)
+    elif n_workers == 1:
         # Sequential fallback (avoids pool overhead for tiny jobs)
-        for task in tasks:
+        for task in run_tasks:
             idx, raws, cleans = worker(task)
             raw_by_idx[idx] = raws
             clean_all.extend(cleans)
             done += len(raws)
-            print(f"PROGRESS {done}/{total}", flush=True)
+            print(f"PROGRESS {done}/{total_here}", flush=True)
     else:
         with mp.Pool(n_workers) as pool:
-            for idx, raws, cleans in pool.imap_unordered(worker, tasks):
+            for idx, raws, cleans in pool.imap_unordered(worker, run_tasks):
                 raw_by_idx[idx] = raws
                 clean_all.extend(cleans)
                 done += len(raws)
-                print(f"PROGRESS {done}/{total}", flush=True)
+                print(f"PROGRESS {done}/{total_here}", flush=True)
+
+    if shard:
+        out = derived / f"shard-{shard[0]}.json"
+        out.write_text(json.dumps({"raw_by_idx": raw_by_idx, "clean": clean_all}))
+        print(f"Wrote {out} ({done} frames) — merge all shards with --merge-shards", flush=True)
+        return
 
     # Reassemble raw records in chronological order, merging the sparse
     # sequential reads taken inside skipped break regions (dedup by video_t,
@@ -2104,6 +2136,11 @@ def main() -> None:
                         help="Coarse break-finding pass only: write derived/break_plan.json, skip dense OCR.")
     parser.add_argument("--detect-method", dest="detect_method", action="store_true",
                         help="Try both OCR methods on sample frames and print the recommended one (JSON).")
+    parser.add_argument("--shard", default=None, metavar="I/N",
+                        help="Read only shard I of N (0-based) of the full run into <derived>/shard-I.json. "
+                             "Use the same --fps/--workers/--decoder for every shard and the merge.")
+    parser.add_argument("--merge-shards", nargs="+", default=None, metavar="SHARD_JSON",
+                        help="Assemble shard files from --shard runs and write the normal outputs.")
     parser.set_defaults(skip_breaks=True, use_markers=True, plan_only=False, detect_method=False)
     args = parser.parse_args()
     if args.detect_method:
@@ -2125,9 +2162,16 @@ def main() -> None:
             workers=args.workers,
         )
     else:
+        shard = None
+        if args.shard:
+            i, n = (int(x) for x in args.shard.split("/"))
+            if not 0 <= i < n:
+                parser.error("--shard must be I/N with 0 <= I < N")
+            shard = (i, n)
         run(Path(args.game), args.fps, workers=args.workers, skip_breaks=args.skip_breaks,
             decoder=args.decoder, derived_dir=Path(args.derived) if args.derived else None,
-            use_markers=args.use_markers, plan_only=args.plan_only)
+            use_markers=args.use_markers, plan_only=args.plan_only,
+            shard=shard, merge_shards=[Path(f) for f in args.merge_shards] if args.merge_shards else None)
 
 
 if __name__ == "__main__":

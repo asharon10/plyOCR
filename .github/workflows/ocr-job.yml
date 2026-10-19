@@ -1,14 +1,17 @@
 name: OCR job
-# Runs plyOCR on one job folder in an S3-compatible bucket (e.g. Cloudflare R2):
+# Runs plyOCR's full-game OCR on one job folder in an S3-compatible bucket
+# (e.g. Cloudflare R2), split across several runners in parallel:
 #   s3://$OCR_BUCKET/ocr-jobs/<job_id>/
-#     game.json, roi.json, markers.json, app/data.json   (inputs; only game.json required)
-#     defaults/roi.json, defaults/roi_templates.json     (optional fallback boxes)
-#     params.json  {"fps": 0.5, "workers": 0, "decoder": "keyframe"}
-# and writes back derived/*, status.json, log.txt and (while running) progress.json
-# {"done": n, "total": m} next to them.
+#     game.json, roi.json, markers.json, app/data.json   inputs (only game.json required)
+#     defaults/roi.json, defaults/roi_templates.json     optional fallback boxes
+#     params.json  {"fps": 0.5, "workers": 4, "decoder": "keyframe", "shards": 6}
+# Each shard runner reads every n-th chunk of the video (--shard i/n) and writes
+# shards/shard-<i>.json (+ progress-<i>.json while running); the merge runner
+# assembles them (--merge-shards) and writes derived/*, status.json and log.txt —
+# the same output one machine would write. Logic: .github/scripts/ocr_job.py.
 #
 # This repo is public, so the run shows nothing about the game: the only input
-# is an opaque job id, the OCR output goes to log.txt in the bucket (not the
+# is an opaque job id, OCR output goes to log files in the bucket (not the
 # console), and no artifacts are kept.
 #
 # Repo secrets: OCR_S3_ENDPOINT, OCR_BUCKET, OCR_S3_ACCESS_KEY_ID, OCR_S3_SECRET_ACCESS_KEY.
@@ -29,86 +32,69 @@ permissions:
 concurrency:
   group: ocr-${{ github.event.inputs.job_id }}
 
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.OCR_S3_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.OCR_S3_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: auto
+  ENDPOINT: ${{ secrets.OCR_S3_ENDPOINT }}
+  BUCKET: ${{ secrets.OCR_BUCKET }}
+  JOB_ID: ${{ github.event.inputs.job_id }}
+  # Same ffmpeg as the reference machine (8.1), pinned: a different ffmpeg can
+  # decode a stream's frames at slightly different times, shifting the clock reads.
+  FFMPEG_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-18-13-01/ffmpeg-n8.1.3-18-g46d899d7a0-linux64-gpl-8.1.tar.xz
+
 jobs:
-  ocr:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.OCR_S3_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.OCR_S3_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: auto
-      ENDPOINT: ${{ secrets.OCR_S3_ENDPOINT }}
-      BUCKET: ${{ secrets.OCR_BUCKET }}
-      JOB_ID: ${{ github.event.inputs.job_id }}
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
     steps:
-      - name: Check job id
-        run: |
-          [[ "$JOB_ID" =~ ^[0-9a-f]{32}$ ]] || { echo "job_id must be 32 hex characters"; exit 1; }
-
       - uses: actions/checkout@v4
+      - id: plan
+        run: python3 .github/scripts/ocr_job.py plan
 
+  shard:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    env:
+      SHARD: ${{ matrix.shard }}
+      SHARDS: ${{ strategy.job-total }}
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr ffmpeg > /dev/null
+          sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr > /dev/null
+          curl -sSL "$FFMPEG_URL" | tar -xJ -C /tmp && sudo cp /tmp/ffmpeg-*/bin/ffmpeg /tmp/ffmpeg-*/bin/ffprobe /usr/local/bin/
+          ffmpeg -version | head -1
           pip install -q .
+      - name: OCR shard
+        run: python3 .github/scripts/ocr_job.py shard
 
-      - name: Fetch job
+  merge:
+    needs: [plan, shard]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SHARD_RESULT: ${{ needs.shard.result }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        if: needs.shard.result == 'success'
         run: |
-          aws s3 cp "s3://$BUCKET/ocr-jobs/$JOB_ID/" job/ --recursive --endpoint-url "$ENDPOINT" --only-show-errors
-          test -f job/game.json
-          rm -rf job/derived job/status.json job/log.txt
-
-      - name: OCR
-        run: |
-          python - <<'EOF'
-          import json, os, re, subprocess, sys, time
-          from pathlib import Path
-
-          job = Path("job")
-          dest = f"s3://{os.environ['BUCKET']}/ocr-jobs/{os.environ['JOB_ID']}/"
-          s3 = ["aws", "s3", "cp", "--endpoint-url", os.environ["ENDPOINT"], "--only-show-errors"]
-          p = json.loads((job / "params.json").read_text()) if (job / "params.json").exists() else {}
-          env = dict(os.environ)
-          for name, var in (("roi.json", "PLYOCR_DEFAULT_ROI"), ("roi_templates.json", "PLYOCR_ROI_TEMPLATES")):
-              if (job / "defaults" / name).exists():
-                  env[var] = str((job / "defaults" / name).resolve())
-          cmd = [sys.executable, "-m", "plyocr.run_tesseract_ocr", "--game", str(job / "game.json"),
-                 "--fps", str(p.get("fps", 0.5)), "--workers", str(p.get("workers", 0)),
-                 "--decoder", str(p.get("decoder", "keyframe")), "--derived", str(job / "derived")]
-          t0 = last = time.time()
-          prog = None
-          with open(job / "log.txt", "w") as log:
-              proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True, bufsize=1)
-              for line in proc.stdout:
-                  log.write(line)
-                  m = re.match(r"PROGRESS\s+(\d+)/(\d+)", line)
-                  if m:
-                      prog = {"done": int(m.group(1)), "total": int(m.group(2))}
-                  if prog and time.time() - last >= 30:   # progress for the caller, ~every 30 s
-                      last = time.time()
-                      (job / "progress.json").write_text(json.dumps(prog))
-                      subprocess.Popen(s3 + [str(job / "progress.json"), dest + "progress.json"])
-              rc = proc.wait()
-          rows = 0
-          try:
-              rows = len(json.loads((job / "derived" / "timeline.json").read_text()))
-          except Exception:
-              pass
-          status = {"status": "done" if rc == 0 else "failed", "exitCode": rc, "rows": rows,
-                    "seconds": round(time.time() - t0), "finishedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-          (job / "status.json").write_text(json.dumps(status))
-          print(f"exit={rc} rows={rows} seconds={status['seconds']}")
-          sys.exit(rc)
-          EOF
-
-      - name: Upload results
-        if: always()
-        run: |
-          [ -f job/status.json ] || echo '{"status":"failed","exitCode":-1,"rows":0}' > job/status.json
-          if [ -d job/derived ]; then aws s3 cp job/derived "s3://$BUCKET/ocr-jobs/$JOB_ID/derived/" --recursive --endpoint-url "$ENDPOINT" --only-show-errors; fi
-          if [ -f job/log.txt ]; then aws s3 cp job/log.txt "s3://$BUCKET/ocr-jobs/$JOB_ID/log.txt" --endpoint-url "$ENDPOINT" --only-show-errors; fi
-          aws s3 cp job/status.json "s3://$BUCKET/ocr-jobs/$JOB_ID/status.json" --endpoint-url "$ENDPOINT" --only-show-errors
+          sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr > /dev/null
+          curl -sSL "$FFMPEG_URL" | tar -xJ -C /tmp && sudo cp /tmp/ffmpeg-*/bin/ffmpeg /tmp/ffmpeg-*/bin/ffprobe /usr/local/bin/
+          pip install -q .
+      - name: Merge
+        run: python3 .github/scripts/ocr_job.py merge
