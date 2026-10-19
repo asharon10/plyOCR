@@ -4,7 +4,8 @@ name: OCR job
 #     game.json, roi.json, markers.json, app/data.json   (inputs; only game.json required)
 #     defaults/roi.json, defaults/roi_templates.json     (optional fallback boxes)
 #     params.json  {"fps": 0.5, "workers": 0, "decoder": "keyframe"}
-# and writes back derived/*, status.json and log.txt next to them.
+# and writes back derived/*, status.json, log.txt and (while running) progress.json
+# {"done": n, "total": m} next to them.
 #
 # This repo is public, so the run shows nothing about the game: the only input
 # is an opaque job id, the OCR output goes to log.txt in the bucket (not the
@@ -12,7 +13,8 @@ name: OCR job
 #
 # Repo secrets: OCR_S3_ENDPOINT, OCR_BUCKET, OCR_S3_ACCESS_KEY_ID, OCR_S3_SECRET_ACCESS_KEY.
 
-run-name: OCR job
+# The title carries the (random, opaque) job id so the caller can find its run.
+run-name: OCR job ${{ github.event.inputs.job_id }}
 
 on:
   workflow_dispatch:
@@ -63,10 +65,12 @@ jobs:
       - name: OCR
         run: |
           python - <<'EOF'
-          import json, os, subprocess, sys, time
+          import json, os, re, subprocess, sys, time
           from pathlib import Path
 
           job = Path("job")
+          dest = f"s3://{os.environ['BUCKET']}/ocr-jobs/{os.environ['JOB_ID']}/"
+          s3 = ["aws", "s3", "cp", "--endpoint-url", os.environ["ENDPOINT"], "--only-show-errors"]
           p = json.loads((job / "params.json").read_text()) if (job / "params.json").exists() else {}
           env = dict(os.environ)
           for name, var in (("roi.json", "PLYOCR_DEFAULT_ROI"), ("roi_templates.json", "PLYOCR_ROI_TEMPLATES")):
@@ -75,9 +79,20 @@ jobs:
           cmd = [sys.executable, "-m", "plyocr.run_tesseract_ocr", "--game", str(job / "game.json"),
                  "--fps", str(p.get("fps", 0.5)), "--workers", str(p.get("workers", 0)),
                  "--decoder", str(p.get("decoder", "keyframe")), "--derived", str(job / "derived")]
-          t0 = time.time()
+          t0 = last = time.time()
+          prog = None
           with open(job / "log.txt", "w") as log:
-              rc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, env=env).returncode
+              proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True, bufsize=1)
+              for line in proc.stdout:
+                  log.write(line)
+                  m = re.match(r"PROGRESS\s+(\d+)/(\d+)", line)
+                  if m:
+                      prog = {"done": int(m.group(1)), "total": int(m.group(2))}
+                  if prog and time.time() - last >= 30:   # progress for the caller, ~every 30 s
+                      last = time.time()
+                      (job / "progress.json").write_text(json.dumps(prog))
+                      subprocess.Popen(s3 + [str(job / "progress.json"), dest + "progress.json"])
+              rc = proc.wait()
           rows = 0
           try:
               rows = len(json.loads((job / "derived" / "timeline.json").read_text()))
