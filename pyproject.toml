@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plyocr"
+version = "0.1.0"
+description = "Read a basketball broadcast scoreboard (clock, quarter, score) from video."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = [
+  "opencv-python-headless>=4.8",
+  "numpy>=1.24",
+  "scipy>=1.11",
+  "pytesseract>=0.3.10",
+  "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+claude = ["anthropic>=0.40"]   # plyocr.claude_review (needs ANTHROPIC_API_KEY)
+easyocr = ["easyocr"]          # heavy (PyTorch); only for method="easyocr"
+dev = ["pytest>=7", "ruff>=0.5"]
+
+[project.urls]
+Homepage = "https://github.com/asharon10/plyOCR"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+plyocr = ["data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82", "F401", "F811"]
+
+[tool.ruff.lint.per-file-ignores]
+# Older local copies, deliberately rebound to run_tesseract_ocr's versions so a
+# single-frame preview reads exactly like a full run. Remove the copies later.
+"src/plyocr/read_frame.py" = ["F811"]

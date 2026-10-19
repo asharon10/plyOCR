@@ -1,0 +1,43 @@
+{
+  "_comment": "Broadcast overlay regions of interest for IBBA / Winner League games. Coordinates are in the source video's pixel space at the assumed frame resolution. All known IBBA broadcasts use the same overlay layout, so this file is reusable across games.",
+  "broadcast": "IBBA / Winner League",
+  "frame_width": 1280,
+  "frame_height": 720,
+  "rois": {
+    "clock": {
+      "x": 270, "y": 645, "w": 85, "h": 40,
+      "color": "red",
+      "font": "clock",
+      "format": "M:SS / MM:SS (>=1:00, colon) or SS.t / S.t (<1:00, period+tenths); right-aligned",
+      "chars": "0123456789:."
+    },
+    "quarter": {
+      "x": 378, "y": 645, "w": 40, "h": 40,
+      "color": "yellow",
+      "font": "quarter",
+      "format": "1-4 (or OT for overtime)",
+      "chars": "1234OT"
+    },
+    "home_score": {
+      "x": 428, "y": 639, "w": 91, "h": 48,
+      "color": "red",
+      "font": "score",
+      "format": "0-3 digit integer, left-aligned",
+      "chars": "0123456789"
+    },
+    "away_score": {
+      "x": 770, "y": 639, "w": 90, "h": 52,
+      "color": "red",
+      "font": "score",
+      "format": "0-3 digit integer, left-aligned",
+      "chars": "0123456789"
+    }
+  },
+  "notes": [
+    "The top-right corner of the frame shows the arena's physical scoreboard, which is camera-angle-dependent and should be ignored.",
+    "The bottom strip has a second row containing per-team fouls (yellow digits). Not OCR'd in v1 but available for future cross-validation.",
+    "During the pre-game (segments hd1..~hd320), the clock region shows a count-down to tip-off (e.g. '31:58') instead of a basketball game clock. We detect this by clock-value being > 12:00 and skip those frames.",
+    "Score regions are LEFT-aligned in their slot, so 1-digit and 2-digit scores leave black space on the right of the ROI.",
+    "FONTS: 'clock' (thin red digits, used only in the clock ROI), 'score' (thicker red digits used in both home and away scores), 'quarter' (yellow italic, only the quarter ROI). Templates are stored per-font under templates/<font>/."
+  ]
+}

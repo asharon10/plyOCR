@@ -1,0 +1,44 @@
+{
+  "frame_width": 1920,
+  "frame_height": 1080,
+  "rois": {
+    "clock": {
+      "x": 404,
+      "y": 969,
+      "w": 133,
+      "h": 67,
+      "color": "red",
+      "font": "clock"
+    },
+    "quarter": {
+      "x": 565,
+      "y": 967,
+      "w": 68,
+      "h": 55,
+      "color": "yellow",
+      "font": "quarter"
+    },
+    "home_score": {
+      "x": 1189,
+      "y": 968,
+      "w": 83,
+      "h": 55,
+      "color": "red",
+      "font": "score"
+    },
+    "away_score": {
+      "x": 660,
+      "y": 968,
+      "w": 76,
+      "h": 57,
+      "color": "red",
+      "font": "score"
+    }
+  },
+  "quarterTemplates": {
+    "1": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAkCAAAAAC2pKXyAAAAj0lEQVQoFW3BAW4AMQzDMOn/j/aWNh52QEn5E37JkgpDllQYsmSFQ5aE/2QZPmQZPmQZPmQZPmRJhSFLKgxZUmHIkgpDllQYsqTCkCUVhiypMGRJhSFLKgxZUmHIkgqHXFLhkEsqHHJJhUMuqXDIJRUOuaTCIZdUOOSSCodcUmHIkgpDloQnw5vhzfBmePsBP+4kIGbdBuAAAAAASUVORK5CYII=",
+    "2": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAkCAAAAAC2pKXyAAAAjklEQVQoFW3BAQLDIAzEMPv/j76R0HXAkGQIPzJJOMkg4Y+A4UIwXAiGQR5hEgmyCEXkEIrIKRTlFIpyCkU5hUHkEIrIIRSRXWgiu1AE2YQmyCo0AVmEJoMsQpEir9CkySsUmeQrNJnkEZo8ZApNvqSFJi8ZQpOFQGiyEkKTjYQmO0ORk+HOcGe4M9wZ7j75GyYgNjfXrQAAAABJRU5ErkJggg==",
+    "3": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAkCAAAAAC2pKXyAAAAiklEQVQoFW3BAQLDIAzEMPv/j74RSjdGkGQIOykSGgEJnWC4EcONGAZ5hYcSZBMm5RSKcgpFOYWinEJRDmFS/oVJZBNeIpvwEJAlfMkgS1hkkiX8CMgSNoL8C5PIKRSlCUWaUKQJRZpQpAlFmlCkCUVOYTLILkwaBnmFh4YbMdyIoRMwNDIIhJ1MH8jjKB3kJaXYAAAAAElFTkSuQmCC",
+    "4": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAkCAAAAAC2pKXyAAAAnklEQVQoFW3BiW0EMQwAMU7/RSvyPUkMLJnbWCGXcYT8N15C/hlvIX/GR8if8RHyNX6FfIyjsULexpGxQl7GEWOFHOMIY4WscWSNFcI4cowVYrzkGCvEOPIyVsg48jZWaBz5GCs0Vr7GCg3ya6zQeNZ41njWeNZ4lttYIbexQm5jhdzGCrmNFXIbK+Q2VshtrJDbWCG3sUJuY4Xcxgo/wpEwIJbL6r0AAAAASUVORK5CYII="
+  }
+}

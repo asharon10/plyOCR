@@ -1,0 +1,49 @@
+{
+  "1920x1080": {
+    "frame_width": 1920,
+    "frame_height": 1080,
+    "n_samples": 3,
+    "rois": {
+      "clock": {
+        "x": 465,
+        "y": 966,
+        "w": 131,
+        "h": 62,
+        "color": "red",
+        "font": "clock",
+        "format": "M:SS / MM:SS (>=1:00, colon) or SS.t / S.t (<1:00, period+tenths); right-aligned",
+        "chars": "0123456789:."
+      },
+      "quarter": {
+        "x": 603,
+        "y": 965,
+        "w": 82,
+        "h": 62,
+        "color": "yellow",
+        "font": "quarter",
+        "format": "1-4 (or OT for overtime)",
+        "chars": "1234OT"
+      },
+      "home_score": {
+        "x": 1216,
+        "y": 967,
+        "w": 83,
+        "h": 55,
+        "color": "red",
+        "font": "score",
+        "format": "0-3 digit integer, left-aligned",
+        "chars": "0123456789"
+      },
+      "away_score": {
+        "x": 690,
+        "y": 969,
+        "w": 90,
+        "h": 52,
+        "color": "red",
+        "font": "score",
+        "format": "0-3 digit integer, left-aligned",
+        "chars": "0123456789"
+      }
+    }
+  }
+}
