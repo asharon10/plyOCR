@@ -83,8 +83,9 @@ def ocr_cmd(*extra: str) -> tuple[list[str], dict]:
 
 
 def run_logged(cmd: list[str], e: dict, log_path: Path, progress_rel: str | None) -> int:
-    """Run the OCR with its output in log_path; relay PROGRESS to the bucket."""
-    last, prog = time.time(), None
+    """Run the OCR with its output in log_path; relay PROGRESS to the bucket
+    (the first one at once — it carries this shard's total — then every ~30 s)."""
+    last, prog = 0.0, None
     with open(log_path, "w") as log:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=e, text=True, bufsize=1)
         assert proc.stdout is not None

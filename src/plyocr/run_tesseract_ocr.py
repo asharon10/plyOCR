@@ -1689,6 +1689,11 @@ def run(game_path: Path, fps: float, workers: int = 0, skip_breaks: bool = True,
     else:
         total_here = total
 
+    if not merge_shards:
+        # Report the size of this run at once, so a caller knows its total before
+        # the first chunk finishes (with shards: every shard counts from the start).
+        print(f"PROGRESS 0/{total_here}", flush=True)
+
     if merge_shards:
         for f in merge_shards:
             d = json.loads(Path(f).read_text())
