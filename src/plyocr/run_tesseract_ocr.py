@@ -609,6 +609,12 @@ def process_frame(frame: np.ndarray, rois: dict[str, Any],
             # Scores/clock use the geometric 7-seg decoder under sevenseg mode.
             if _METHOD == "sevenseg" and field != "quarter":
                 return sevenseg.decode_crop(c, is_clock=(field == "clock")) or None
+            # A 7-seg board's quarter digit: the decoder first (Tesseract misreads it
+            # as an ordinal, e.g. a slanted "2" → "rd" → Q3); ordinal boards fall through.
+            if _METHOD == "sevenseg" and field == "quarter":
+                q = sevenseg.quarter_digit(c)
+                if q:
+                    return q
             # The quarter is read with Tesseract first — it handles ordinal boards
             # ("1st"/"2nd") that the 7-seg decoder can't. But many LED boards show a
             # plain 7-seg quarter DIGIT (e.g. a yellow "3") that Tesseract misreads

@@ -342,6 +342,10 @@ def main() -> None:
                 raw = ocr(preprocess(crop), field)
         elif method == "easyocr":
             raw = ocr_easyocr(crop, field)
+        elif method == "sevenseg" and field == "quarter" and sevenseg.quarter_digit(crop):
+            raw = sevenseg.quarter_digit(crop)   # same order as the full run
+            if args.emit_crops:
+                proc = preprocess(crop, trim_components=False, grayscale=grayscale, threshold=thr)
         elif method == "sevenseg" and field != "quarter":
             raw = sevenseg.decode_crop(crop, is_clock=(field == "clock"))
             # Still build a preview crop so the threshold slider has visual feedback.

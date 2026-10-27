@@ -106,8 +106,16 @@ def read_frame(frame, rois: dict, src_w: int, src_h: int, method: str, grayscale
             raw = str(tq)
         elif method == "sevenseg" and field != "quarter":
             raw = sevenseg.decode_crop(crop, is_clock=(field == "clock")) or ""
+        elif method == "sevenseg" and sevenseg.quarter_digit(crop):
+            raw = sevenseg.quarter_digit(crop) or ""   # same order as the full run
         else:
             raw = pipe.ocr_field(proc, field) or ""
+            # Same as the full run (run_tesseract_ocr): a 7-seg board's quarter DIGIT
+            # that Tesseract can't parse falls back to the 7-seg decoder.
+            if field == "quarter" and method == "sevenseg" and pipe.parse_quarter(raw) is None:
+                sv = sevenseg.decode_crop(crop, is_clock=False) or ""
+                if pipe.parse_quarter(sv) is not None:
+                    raw = sv
         parsed = (pipe.parse_clock(raw) if field == "clock"
                   else pipe.parse_quarter(raw) if field == "quarter" else pipe.parse_score(raw))
         e: dict[str, Any] = {"raw": raw, "parsed": parsed, "valid": parsed is not None}

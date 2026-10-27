@@ -1,0 +1,63 @@
+{
+ "_comment": "WBPL TV women's league, red italic 7-segment board (yellow quarter digit, blinking colon). Hapoel Rishon LeZion vs Elitzur Holon, 2026-10-04, YouTube. Boxes = the court's saved setup (the clock box catches the neighbouring panel's edge). Ground truth read by eye from the crops. s3212: last-minute tenths shown with a colon (\"2:8\" = 2.8 s).",
+ "s849": {
+  "clock": "9:12",
+  "quarter": 1,
+  "away_score": 0,
+  "home_score": 0
+ },
+ "s1466": {
+  "clock": "3:11",
+  "quarter": 1,
+  "away_score": 8,
+  "home_score": 19
+ },
+ "s2084": {
+  "clock": "9:13",
+  "quarter": 2,
+  "away_score": 16,
+  "home_score": 22
+ },
+ "s2702": {
+  "clock": "4:42",
+  "quarter": 2,
+  "away_score": 23,
+  "home_score": 30
+ },
+ "s3937": {
+  "clock": "4:36",
+  "quarter": 2,
+  "away_score": 35,
+  "home_score": 36
+ },
+ "s4554": {
+  "clock": "4:40",
+  "quarter": 3,
+  "away_score": 41,
+  "home_score": 48
+ },
+ "s5172": {
+  "clock": "0:58",
+  "quarter": 3,
+  "away_score": 54,
+  "home_score": 55
+ },
+ "s5790": {
+  "clock": "4:57",
+  "quarter": 4,
+  "away_score": 56,
+  "home_score": 63
+ },
+ "s6407": {
+  "clock": "46.4",
+  "quarter": 4,
+  "away_score": 69,
+  "home_score": 68
+ },
+ "s3212": {
+  "clock": "2.8",
+  "quarter": 2,
+  "away_score": 33,
+  "home_score": 36
+ }
+}

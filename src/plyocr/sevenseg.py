@@ -39,6 +39,11 @@ _SEG_TABLE: dict[tuple[int, ...], str] = {
     (1, 1, 1, 0, 0, 0, 0): "7",
     (1, 1, 1, 1, 1, 1, 1): "8",
     (1, 1, 1, 1, 0, 1, 1): "9",
+    # Common font variants: a "9" without its bottom bar (a "q"), a "6" without
+    # its top bar, a "7" with a hooked top-left.
+    (1, 1, 1, 0, 0, 1, 1): "9",
+    (0, 0, 1, 1, 1, 1, 1): "6",
+    (1, 1, 1, 0, 0, 1, 0): "7",
 }
 
 _V_MIN = 110   # min HSV value — lit segments are bright; dim ghosts are excluded
@@ -108,6 +113,78 @@ def _lit_mask(crop_bgr: np.ndarray) -> np.ndarray:
     if 0.04 <= float(core.mean()) <= _BLOB_FRAC:
         return core
     return sat
+
+
+# Italic (slanted) LED fonts: the segments of a leaning digit fall outside the
+# upright sampling regions (a "9" loses its top/bottom bars → "4"). Shear the mask
+# upright first. The shear is the one that makes the column projection sharpest
+# (vertical strokes stack into the fewest, densest columns); an upright board
+# scores best at 0, so it's left alone.
+_SHEARS = np.linspace(-0.45, 0.45, 19)
+_SHEAR_GAIN = 1.06   # a slant must sharpen the columns by ≥6% to count
+
+
+def _shear(m: np.ndarray, k: float) -> np.ndarray:
+    H, W = m.shape
+    pad = int(abs(k) * H / 2) + 1
+    mp = np.pad(m, ((0, 0), (pad, pad)))
+    M = np.float32([[1, k, -k * H / 2], [0, 1, 0]])
+    return cv2.warpAffine(mp, M, (W + 2 * pad, H), flags=cv2.INTER_NEAREST)
+
+
+def _deskew(m: np.ndarray) -> np.ndarray:
+    if m.sum() < 20:
+        return m
+    def sharp(x: np.ndarray) -> float:
+        col = x.sum(axis=0).astype(np.float64)
+        return float((col ** 2).sum())
+    base = sharp(_shear(m, 0.0))
+    best_k, best = 0.0, base
+    for k in _SHEARS:
+        v = sharp(_shear(m, float(k)))
+        if v > best:
+            best_k, best = float(k), v
+    if best < base * _SHEAR_GAIN:
+        return m
+    return _shear(m, best_k)
+
+
+_THIN_STROKE = 0.060   # stroke width ÷ crop height below which strokes are thickened
+
+
+def _stroke_width(m: np.ndarray) -> float:
+    """Mean stroke width ≈ lit area ÷ half the outline length."""
+    cnts, _ = cv2.findContours(m.astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    per = sum(len(c) for c in cnts)
+    return 2.0 * float(m.sum()) / per if per else 0.0
+
+
+def _solidify(m: np.ndarray) -> np.ndarray:
+    """Close pinholes and 1–2 px gaps, so a thin or OUTLINE-rendered digit (lit
+    edges, dark core) becomes solid strokes the segment sampler can see; a
+    hairline font (e.g. a 1-px yellow quarter digit) is also thickened."""
+    k = np.ones((3, 3), np.uint8)
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k)
+    if m.sum() and _stroke_width(m) < _THIN_STROKE * m.shape[0]:
+        m = cv2.dilate(m, k)
+    return m
+
+
+def _drop_edge_slivers(m: np.ndarray) -> np.ndarray:
+    """Remove pieces touching the crop's left/right edge that are shorter than the
+    tallest piece: the neighbouring panel's border (or a cut-off glyph) caught in
+    the box — it decoded as a phantom leading "1"."""
+    n, lab, st, _ = cv2.connectedComponentsWithStats(m.astype(np.uint8), connectivity=8)
+    if n <= 2:
+        return m
+    W = m.shape[1]
+    tallest = int(st[1:, cv2.CC_STAT_HEIGHT].max())
+    out = m.copy()
+    for i in range(1, n):
+        x, w, h = st[i, cv2.CC_STAT_LEFT], st[i, cv2.CC_STAT_WIDTH], st[i, cv2.CC_STAT_HEIGHT]
+        if (x <= 1 or x + w >= W - 1) and h < 0.85 * tallest:
+            out[lab == i] = 0
+    return out
 
 
 def _separator(crop_bgr: np.ndarray) -> tuple[str, float] | None:
@@ -180,6 +257,10 @@ def decode_crop(crop_bgr: np.ndarray, is_clock: bool = False) -> str:
     m = _lit_mask(crop_bgr)
     H, W = m.shape
     if H == 0 or W == 0 or m.sum() == 0:
+        return ""
+    m = _deskew(_drop_edge_slivers(_solidify(m)))
+    H, W = m.shape
+    if m.sum() == 0:
         return ""
 
     on = (m.sum(axis=0) > 1).astype(int)
@@ -257,10 +338,26 @@ def decode_crop(crop_bgr: np.ndarray, is_clock: bool = False) -> str:
     sep = inline_sep or _separator(crop_bgr)
     if sep is None:
         return "".join(ds)
+    # Where the separator sits decides it, as above: one digit after it is tenths
+    # ("2:8" on a colon-tenths board = 2.8 s), two digits are seconds.
+    if inline_sep is not None:
+        n_after = sum(1 for x in xs if x > inline_sep[1])
+        if n_after == 1 and len(ds) == 2:
+            return ds[0] + "." + ds[1]
     tail = 1 if sep[0] == "." else 2
     if len(ds) > tail:
         return "".join(ds[:-tail]) + sep[0] + "".join(ds[-tail:])
     return "".join(ds)
+
+
+def quarter_digit(crop_bgr: np.ndarray) -> str | None:
+    """A 7-seg quarter DIGIT ("1".."4"), or None when the box doesn't hold one
+    (e.g. an ordinal "2nd" text board — read that with Tesseract instead).
+
+    On 7-seg boards this goes FIRST: Tesseract reads a slanted LED "2" as "rd",
+    which the ordinal parser then takes for Q3."""
+    d = decode_crop(crop_bgr, is_clock=False)
+    return d if len(d) == 1 and d in "1234" else None
 
 
 def read_fields(frame_bgr: np.ndarray, rois: dict[str, Any],
