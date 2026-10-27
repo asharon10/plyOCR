@@ -15,7 +15,7 @@ Needs the `tesseract` and `ffmpeg` binaries on the PATH
 (`brew install tesseract ffmpeg` / `apt-get install tesseract-ocr ffmpeg`).
 
 ```bash
-pip install "plyocr @ git+https://github.com/asharon10/plyOCR@v0.1.0"
+pip install "plyocr @ git+https://github.com/asharon10/plyOCR@v0.1.1"
 # extras: plyocr[claude] (Claude vision ROI review), plyocr[easyocr], plyocr[dev]
 ```
 
