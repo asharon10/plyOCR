@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "plyocr"
-version = "0.1.1"
+version = "0.1.2"
 description = "Read a basketball broadcast scoreboard (clock, quarter, score) from video."
 readme = "README.md"
 license = { text = "MIT" }

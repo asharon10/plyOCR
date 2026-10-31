@@ -827,6 +827,32 @@ def _median_filter(values: list[int], window: int) -> list[int]:
     return out
 
 
+def _longest_nondecreasing(values: list[int]) -> list[bool]:
+    """Mask of the longest non-decreasing subsequence of `values` (O(n log n)).
+
+    A score's true reads form one long non-decreasing run; a misread that sticks
+    for a while (e.g. "11" read as "41") is a short detour off it, so it's left
+    out — where a running max would hold it until the real score caught up."""
+    tails_val: list[int] = []   # smallest tail value of a run of each length
+    tails_idx: list[int] = []
+    prev = [-1] * len(values)
+    for i, v in enumerate(values):
+        k = bisect.bisect_right(tails_val, v)
+        if k == len(tails_val):
+            tails_val.append(v)
+            tails_idx.append(i)
+        else:
+            tails_val[k] = v
+            tails_idx[k] = i
+        prev[i] = tails_idx[k - 1] if k > 0 else -1
+    keep = [False] * len(values)
+    i = tails_idx[-1] if tails_idx else -1
+    while i >= 0:
+        keep[i] = True
+        i = prev[i]
+    return keep
+
+
 def _quarters_by_segment(records: list[dict[str, Any]]) -> list[int]:
     """Assign each record's quarter by segmenting the timeline at clock RESETS
     (a jump back to ~10:00 / ~5:00 after counting down) and taking the MODE of the
@@ -898,8 +924,9 @@ def smooth_records(records: list[dict[str, Any]], window: int = 7) -> list[dict[
       - each team's score is monotonically non-decreasing
 
     A sliding-window median kills lone spikes (e.g. a single 'Q4' read in the
-    middle of Q1), then we enforce monotonicity on quarter and scores so a
-    transient garbage value can't push the running total backwards.
+    middle of Q1). Scores then keep only their longest non-decreasing run: a
+    misread that outlasts the median (too high OR too low) is dropped and filled
+    from the reads around it, instead of a running max locking it in.
     """
     if len(records) < 3:
         return records
@@ -919,11 +946,15 @@ def smooth_records(records: list[dict[str, Any]], window: int = 7) -> list[dict[
                 last = v
             filled.append(last)
         med = _median_filter(filled, window)
-        # Enforce non-decreasing (scores never drop within a game)
-        running = med[0]
+        # Scores never drop within a game: keep the longest non-decreasing run,
+        # each dropped read takes the last kept value before it.
+        keep = _longest_nondecreasing(med)
+        last_kept = med[keep.index(True)]
         for i in range(len(med)):
-            running = max(running, med[i])
-            med[i] = running
+            if keep[i]:
+                last_kept = med[i]
+            else:
+                med[i] = last_kept
         # Re-mask leading region that was never observed (all None so far)
         out: list[int | None] = []
         seen = False
