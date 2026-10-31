@@ -1,0 +1,64 @@
+name: Render clip
+# Renders one clip a phone asked for on play-vizio.com, started by the cloud
+# Worker (playvizio.io services/cloud) when ⚙ Setup → Pipeline → "Make clips on"
+# is GitHub. The render code is playvizio's (scripts/export/), checked out
+# read-only for the run: the runner fetches the request's spec from the cloud,
+# renders it with ffmpeg and uploads the mp4 back.
+#
+# This repo is public, so the run shows nothing about the game: the only input
+# is the opaque request id, the render's own output stays off the console (only
+# progress is printed), and no artifacts are kept.
+#
+# Repo secrets: PLAYVIZIO_READ_TOKEN (fine-grained, Contents: read on
+# asharon10/playvizio.io), PLAYVIZIO_RUNNER_KEY (the cloud's CLIP_RUNNER_KEY).
+
+run-name: Clip ${{ github.event.inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Clip request id
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clip-${{ github.event.inputs.request_id }}
+
+env:
+  REQUEST_ID: ${{ github.event.inputs.request_id }}
+  CLOUD_API: https://api.play-vizio.com
+  CLIP_KEY: ${{ secrets.PLAYVIZIO_RUNNER_KEY }}
+  # The same pinned ffmpeg as the OCR job.
+  FFMPEG_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-18-13-01/ffmpeg-n8.1.3-18-g46d899d7a0-linux64-gpl-8.1.tar.xz
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: asharon10/playvizio.io
+          token: ${{ secrets.PLAYVIZIO_READ_TOKEN }}
+          sparse-checkout: scripts
+          path: playvizio
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          curl -sSL "$FFMPEG_URL" | tar -xJ -C /tmp && sudo cp /tmp/ffmpeg-*/bin/ffmpeg /tmp/ffmpeg-*/bin/ffprobe /usr/local/bin/
+          ffmpeg -version | head -1
+          pip install -q "Pillow>=10.0" "python-bidi>=0.4"
+      - name: Render and upload
+        run: python3 playvizio/scripts/export/run_cloud_clip.py --api "$CLOUD_API" --request "$REQUEST_ID" --quiet
+      # Setup failed before the script could report it: tell the phone.
+      - name: Report failure
+        if: failure()
+        run: |
+          curl -fsS -o /dev/null -X POST "$CLOUD_API/runner/requests/$REQUEST_ID" \
+            -H "Authorization: Bearer $CLIP_KEY" -H "Content-Type: application/json" \
+            -d '{"status":"error","result":"The GitHub run failed — try again"}' || true
