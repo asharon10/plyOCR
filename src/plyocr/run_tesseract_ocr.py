@@ -853,6 +853,21 @@ def _longest_nondecreasing(values: list[int]) -> list[bool]:
     return keep
 
 
+def _one_for_four(v: int) -> list[int]:
+    """The values `v` could really be if Tesseract read some of its 1s as 4s (on
+    the Pixellot / Winner bar font a "1" often comes out as "4": "11" → "41")."""
+    s = str(v)
+    spots = [i for i, ch in enumerate(s) if ch == "4"]
+    out = set()
+    for mask in range(1, 1 << len(spots)):
+        t = list(s)
+        for j, i in enumerate(spots):
+            if mask >> j & 1:
+                t[i] = "1"
+        out.add(int("".join(t)))
+    return sorted(out)
+
+
 def _quarters_by_segment(records: list[dict[str, Any]]) -> list[int]:
     """Assign each record's quarter by segmenting the timeline at clock RESETS
     (a jump back to ~10:00 / ~5:00 after counting down) and taking the MODE of the
@@ -949,10 +964,24 @@ def smooth_records(records: list[dict[str, Any]], window: int = 7) -> list[dict[
         # Scores never drop within a game: keep the longest non-decreasing run,
         # each dropped read takes the last kept value before it.
         keep = _longest_nondecreasing(med)
+        # The next kept value after each read (the right edge it has to fit under).
+        next_kept: list[int | None] = [None] * len(med)
+        nxt = None
+        for i in range(len(med) - 1, -1, -1):
+            next_kept[i] = nxt
+            if keep[i]:
+                nxt = med[i]
         last_kept = med[keep.index(True)]
         for i in range(len(med)):
             if keep[i]:
                 last_kept = med[i]
+                continue
+            # A dropped read that is a 1→4 misread of a score that fits here (between
+            # the kept reads around it) is the real score — keep it, corrected.
+            hi = next_kept[i]
+            fits = [c for c in _one_for_four(med[i]) if last_kept <= c and (hi is None or c <= hi)]
+            if fits:
+                med[i] = last_kept = fits[0]
             else:
                 med[i] = last_kept
         # Re-mask leading region that was never observed (all None so far)
