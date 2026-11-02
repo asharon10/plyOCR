@@ -39,9 +39,11 @@ env:
   ENDPOINT: ${{ secrets.OCR_S3_ENDPOINT }}
   BUCKET: ${{ secrets.OCR_BUCKET }}
   JOB_ID: ${{ github.event.inputs.job_id }}
-  # Same ffmpeg as the reference machine (8.1), pinned: a different ffmpeg can
-  # decode a stream's frames at slightly different times, shifting the clock reads.
-  FFMPEG_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-18-13-01/ffmpeg-n8.1.3-18-g46d899d7a0-linux64-gpl-8.1.tar.xz
+  # Same ffmpeg line as the reference machine (8.1): a different ffmpeg can decode a
+  # stream's frames at slightly different times, shifting the clock reads. BtbN's newest
+  # 8.1 build, by its stable "latest" name — its dated autobuilds are deleted after
+  # ~2 weeks (a pinned one broke every run).
+  FFMPEG_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
 
 jobs:
   plan:
@@ -72,7 +74,9 @@ jobs:
       - name: Install
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr > /dev/null
-          curl -sSL "$FFMPEG_URL" | tar -xJ -C /tmp && sudo cp /tmp/ffmpeg-*/bin/ffmpeg /tmp/ffmpeg-*/bin/ffprobe /usr/local/bin/
+          set -o pipefail   # a failed download must fail this step, not leave OCR without ffmpeg
+          curl -fsSL "$FFMPEG_URL" | tar -xJ -C /tmp
+          sudo cp /tmp/ffmpeg-*/bin/ffmpeg /tmp/ffmpeg-*/bin/ffprobe /usr/local/bin/
           ffmpeg -version | head -1
           pip install -q .
       - name: OCR shard
@@ -94,7 +98,9 @@ jobs:
         if: needs.shard.result == 'success'
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr > /dev/null
-          curl -sSL "$FFMPEG_URL" | tar -xJ -C /tmp && sudo cp /tmp/ffmpeg-*/bin/ffmpeg /tmp/ffmpeg-*/bin/ffprobe /usr/local/bin/
+          set -o pipefail   # a failed download must fail this step, not leave OCR without ffmpeg
+          curl -fsSL "$FFMPEG_URL" | tar -xJ -C /tmp
+          sudo cp /tmp/ffmpeg-*/bin/ffmpeg /tmp/ffmpeg-*/bin/ffprobe /usr/local/bin/
           pip install -q .
       - name: Merge
         run: python3 .github/scripts/ocr_job.py merge
