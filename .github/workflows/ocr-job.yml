@@ -49,7 +49,7 @@ jobs:
     outputs:
       shards: ${{ steps.plan.outputs.shards }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: plan
         run: python3 .github/scripts/ocr_job.py plan
 
@@ -65,8 +65,8 @@ jobs:
       SHARD: ${{ matrix.shard }}
       SHARDS: ${{ strategy.job-total }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install
@@ -86,8 +86,8 @@ jobs:
     env:
       SHARD_RESULT: ${{ needs.shard.result }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install

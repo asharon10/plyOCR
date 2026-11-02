@@ -39,13 +39,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: asharon10/playvizio.io
           token: ${{ secrets.PLAYVIZIO_READ_TOKEN }}
           sparse-checkout: scripts
           path: playvizio
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install
