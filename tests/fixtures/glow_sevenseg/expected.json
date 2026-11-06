@@ -1,0 +1,27 @@
+{
+  "_note": "National League board: white-hot red LED scores on a glowing panel, yellow clock. Read by eye from the crops.",
+  "s2900": {
+    "clock": "1:51",
+    "quarter": 1,
+    "away_score": 11,
+    "home_score": 17
+  },
+  "s5650": {
+    "clock": "7:39",
+    "quarter": 3,
+    "away_score": 37,
+    "home_score": 36
+  },
+  "s5940": {
+    "clock": "5:43",
+    "quarter": 3,
+    "away_score": 44,
+    "home_score": 41
+  },
+  "s6100": {
+    "clock": "5:31",
+    "quarter": 3,
+    "away_score": 45,
+    "home_score": 41
+  }
+}
