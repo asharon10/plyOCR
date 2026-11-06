@@ -62,6 +62,10 @@ _SEP_MIN_PX = 6
 # digits merge into a blob — fall back to the desaturated-core channel below.
 _BLOB_FRAC = 0.42
 _CORE_V_MIN = 90   # core channel keeps only genuinely bright pixels
+# A glowing panel can bleed in under _BLOB_FRAC when the digits are few or narrow
+# ("17", "41" light less than "36"); the strokes are then far too fat. Real LED
+# strokes measure ≤ 0.12·H, a glow blob ≥ 0.24·H.
+_BLOB_STROKE = 0.18
 
 
 def _lit_mask_sat(crop_bgr: np.ndarray) -> np.ndarray:
@@ -107,7 +111,7 @@ def _lit_mask(crop_bgr: np.ndarray) -> np.ndarray:
     switch to the desaturated-core channel. An empty saturation mask is left as-is
     so frames with no scoreboard never fabricate a read."""
     sat = _lit_mask_sat(crop_bgr)
-    if float(sat.mean()) <= _BLOB_FRAC:
+    if float(sat.mean()) <= _BLOB_FRAC and _stroke_width(sat) <= _BLOB_STROKE * sat.shape[0]:
         return sat
     core = _lit_mask_core(crop_bgr)
     if 0.04 <= float(core.mean()) <= _BLOB_FRAC:
@@ -219,9 +223,12 @@ def _decode_digit(cell: np.ndarray) -> str:
         return "?"
     if w < 0.30 * h:          # VERY narrow → "1" (a "7" is wider, ~0.4·h, so excluded)
         return "1"
-    a = _seg_frac(cell, 0.00, 0.18, 0.20, 0.80)
+    # The top/bottom bars are sampled in the middle third only: a "4"'s uprights
+    # run to the top of the cell, and on a narrow cell an x 20–80 % window caught
+    # their tips as a phantom top bar (4 → "9").
+    a = _seg_frac(cell, 0.00, 0.18, 0.33, 0.67)
     g = _seg_frac(cell, 0.42, 0.60, 0.20, 0.80)
-    d = _seg_frac(cell, 0.82, 1.00, 0.20, 0.80)
+    d = _seg_frac(cell, 0.82, 1.00, 0.33, 0.67)
     f = _seg_frac(cell, 0.10, 0.48, 0.00, 0.32)
     e = _seg_frac(cell, 0.52, 0.92, 0.00, 0.32)
     b = _seg_frac(cell, 0.10, 0.48, 0.68, 1.00)
@@ -300,6 +307,7 @@ def decode_crop(crop_bgr: np.ndarray, is_clock: bool = False) -> str:
     digit_h = max(c[3] for c in cells)
 
     digits: list[tuple[float, str]] = []
+    rights: list[float] = []   # each digit's right edge — a "1" sits at the right of its slot
     inline_sep: tuple[float, str] | None = None   # a same-colour colon in the mask
     for x0, x1, cell, ch, cy in cells:
         if ch < 0.62 * digit_h:        # much shorter than the digits → separator
@@ -309,6 +317,7 @@ def decode_crop(crop_bgr: np.ndarray, is_clock: bool = False) -> str:
         dig = _decode_digit(cell)
         if dig != "?":
             digits.append(((x0 + x1) / 2 / W, dig))
+            rights.append(x1 / W)
 
     if not is_clock:
         return "".join(d for _, d in digits)
@@ -327,7 +336,9 @@ def decode_crop(crop_bgr: np.ndarray, is_clock: bool = False) -> str:
     # parse_clock reads them. (Position-from-gap beats the colour-based separator
     # detector, which reports garbage on an all-red clock where every digit is red.)
     if len(ds) >= 3:
-        gaps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
+        # Right edges, not centres: a "1" is only the right-hand strokes of its slot,
+        # so its centre is pulled right ("1:51" split as "15.1"); right edges line up.
+        gaps = [rights[i + 1] - rights[i] for i in range(len(rights) - 1)]
         k = max(range(len(gaps)), key=lambda i: gaps[i])
         n_after = len(ds) - (k + 1)
         if n_after in (1, 2):
