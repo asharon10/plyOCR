@@ -1,0 +1,43 @@
+name: Build players
+# Builds the players' season files for play-vizio.com's player page, started by the
+# cloud Worker (playvizio.io services/cloud) after a game is published. The build code
+# is playvizio's (scripts/players/build_season.py), checked out read-only for the run:
+# it asks the cloud which players changed, reads their games' analysis and
+# play-by-play, and writes one small season file per player back to the cloud.
+#
+# This repo is public, so the run shows nothing about the players: no inputs, the
+# script prints counts only (--quiet), and no artifacts are kept.
+#
+# Repo secrets: PLAYVIZIO_READ_TOKEN (fine-grained, Contents: read on
+# asharon10/playvizio.io), PLAYVIZIO_RUNNER_KEY (the cloud's CLIP_RUNNER_KEY).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time; a newer start waits (GitHub keeps one waiting) and builds whatever
+# was published meanwhile.
+concurrency:
+  group: build-players
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: asharon10/playvizio.io
+          token: ${{ secrets.PLAYVIZIO_READ_TOKEN }}
+          sparse-checkout: scripts/players
+          path: playvizio
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build season files
+        env:
+          PLAYERS_KEY: ${{ secrets.PLAYVIZIO_RUNNER_KEY }}
+        run: python3 playvizio/scripts/players/build_season.py --api https://api.play-vizio.com --quiet
